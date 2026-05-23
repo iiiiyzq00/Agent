@@ -1,0 +1,62 @@
+<template>
+  <div class="home-page">
+    <div class="hero">
+      <h1>🏠 MoveRenovateAI</h1>
+      <p>智能搬家/装修规划助手，让你的搬家和装修更轻松</p>
+      <a-space>
+        <a-button type="primary" size="large" @click="$router.push('/chat')"><icon-message /> 开始规划</a-button>
+        <a-button size="large" @click="$router.push('/projects')"><icon-folder /> 我的项目</a-button>
+      </a-space>
+    </div>
+    <div class="features">
+      <a-row :gutter="24">
+        <a-col :span="8"><a-card class="feature-card">
+          <template #cover><div class="feature-icon">📦</div></template>
+          <h3>搬家规划</h3><p>智能生成物品清单、打包顺序、搬运方案</p>
+        </a-card></a-col>
+        <a-col :span="8"><a-card class="feature-card">
+          <template #cover><div class="feature-icon">🏠</div></template>
+          <h3>装修规划</h3><p>精准预算估算、施工进度管理、材料清单</p>
+        </a-card></a-col>
+        <a-col :span="8"><a-card class="feature-card">
+          <template #cover><div class="feature-icon">💡</div></template>
+          <h3>知识问答</h3><p>装修知识、搬家技巧、生活小妙招</p>
+        </a-card></a-col>
+      </a-row>
+    </div>
+    <div class="recent-projects" v-if="projects.length > 0">
+      <h2>最近项目</h2>
+      <a-list :data="projects" :pagination="{ pageSize: 3 }">
+        <template #item="{ item }">
+          <a-list-item>
+            <a-list-item-meta :title="item.title" :description="`${item.project_type === 'moving' ? '搬家' : '装修'} · ${item.created_at?.split('T')[0]}`">
+              <template #avatar><a-avatar>{{ item.project_type === 'moving' ? '📦' : '🏠' }}</a-avatar></template>
+            </a-list-item-meta>
+            <template #actions><a-button type="text" @click="$router.push(`/project/${item.id}`)">查看</a-button></template>
+          </a-list-item>
+        </template>
+      </a-list>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { projectsApi } from '../api/projects'
+const projects = ref<any[]>([])
+onMounted(async () => { try { projects.value = await projectsApi.list() } catch (error) { console.error('加载项目失败', error) } })
+</script>
+
+<style scoped>
+.home-page { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+.hero { text-align: center; padding: 60px 0; }
+.hero h1 { font-size: 48px; margin-bottom: 16px; }
+.hero p { font-size: 18px; color: #86909c; margin-bottom: 32px; }
+.features { margin: 60px 0; }
+.feature-card { text-align: center; transition: transform 0.3s; cursor: pointer; }
+.feature-card:hover { transform: translateY(-8px); }
+.feature-icon { font-size: 48px; padding: 32px 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.feature-card h3 { margin: 16px 0 8px; }
+.feature-card p { color: #86909c; }
+.recent-projects h2 { margin-bottom: 24px; }
+</style>
