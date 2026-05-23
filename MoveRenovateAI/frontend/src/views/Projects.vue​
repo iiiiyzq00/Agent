@@ -1,0 +1,59 @@
+<template>
+  <div class="projects-page">
+    <div class="page-header">
+      <h1>📁 我的项目</h1>
+      <a-button type="primary" @click="showCreateModal = true"><icon-plus /> 新建项目</a-button>
+    </div>
+    <a-tabs v-model="activeTab">
+      <a-tab-pane key="all" title="全部" />
+      <a-tab-pane key="moving" title="搬家" />
+      <a-tab-pane key="renovating" title="装修" />
+    </a-tabs>
+    <a-list :data="filteredProjects" :loading="loading" :pagination="{ pageSize: 10 }">
+      <template #item="{ item }">
+        <a-list-item>
+          <a-list-item-meta :title="item.title" :description="item.project_type === 'moving' ? '搬家' : `装修 · ${item.total_budget?.toLocaleString()}元`">
+            <template #avatar><a-avatar :size="48">{{ item.project_type === 'moving' ? '📦' : '🏠' }}</a-avatar></template>
+          </a-list-item-meta>
+          <template #actions>
+            <a-button type="text" @click="$router.push(`/project/${item.id}`)">查看</a-button>
+            <a-button type="text" status="danger" @click="deleteProject(item.id)">删除</a-button>
+          </template>
+        </a-list-item>
+      </template>
+    </a-list>
+    <a-modal v-model:visible="showCreateModal" title="新建项目" @ok="createProject">
+      <a-form :model="newProject" layout="vertical">
+        <a-form-item label="项目类型" required>
+          <a-radio-group v-model="newProject.project_type">
+            <a-radio value="moving">📦 搬家</a-radio>
+            <a-radio value="renovating">🏠 装修</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="项目名称" required>
+          <a-input v-model="newProject.title" placeholder="给项目起个名字" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { Message } from '@arco-design/web-vue'
+import { projectsApi } from '../api/projects'
+
+const activeTab = ref('all'); const loading = ref(false); const projects = ref<any[]>([]); const showCreateModal = ref(false)
+const newProject = ref({ project_type: 'moving', title: '' })
+const filteredProjects = computed(() => activeTab.value === 'all' ? projects.value : projects.value.filter(p => p.project_type === activeTab.value))
+const loadProjects = async () => { loading.value = true; try { projects.value = await projectsApi.list() } catch (error) { console.error('加载项目失败') } finally { loading.value = false } }
+const createProject = async () => { try { await projectsApi.create(newProject.value); Message.success('项目创建成功'); showCreateModal.value = false; newProject.value = { project_type: 'moving', title: '' }; loadProjects() } catch (error) { Message.error('创建失败') } }
+const deleteProject = async (id: string) => { try { await projectsApi.delete(id); Message.success('项目已删除'); loadProjects() } catch (error) { Message.error('删除失败') } }
+onMounted(loadProjects)
+</script>
+
+<style scoped>
+.projects-page { max-width: 900px; margin: 0 auto; padding: 24px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.page-header h1 { font-size: 24px; margin: 0; }
+</style>
