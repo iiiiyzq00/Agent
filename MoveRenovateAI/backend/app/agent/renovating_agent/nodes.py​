@@ -1,0 +1,171 @@
+"""装修规划 Agent 节点模块"""
+from typing import Dict, Any
+from app.agent.state import RenovatingAgentState
+from app.llm.client import get_llm_client
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def parse_requirements(state: RenovatingAgentState) -> RenovatingAgentState:
+    """节点 1: 解析装修需求"""
+    logger.info("📋 [装修Agent] 解析装修需求")
+    llm = get_llm_client()
+    prompt = f"""分析用户的装修需求，提取以下关键信息：
+    - house_type: 户型（如：一室一厅、两室两厅、三室两厅等）
+    - house_area: 房屋面积（平方米，数字）
+    - current_state: 房屋现状（毛坯房/二手房/旧房翻新）
+    - style: 装修风格（现代简约/北欧/中式/美式/日式/轻奢）
+    - budget_range: 预算范围（如："10-15万"、"20万左右"）
+    - priorities: 优先级列表
+    用户输入: {state['user_message']}
+    返回 JSON 格式，只包含提取到的信息。"""
+    try:
+        response = await llm.agenerate([prompt])
+        text = response.generations[0][0].text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        result = json.loads(text.strip())
+        state['house_type'] = result.get('house_type')
+        state['house_area'] = result.get('house_area')
+        state['current_state'] = result.get('current_state', '毛坯房')
+        state['style'] = result.get('style', '现代简约')
+        state['budget_range'] = result.get('budget_range')
+        state['priorities'] = result.get('priorities', [])
+        logger.info("✅ 需求解析完成")
+    except Exception as e:
+        logger.error(f"❌ 需求解析失败: {e}")
+        state['error'] = str(e)
+    return state
+
+async def calculate_budget(state: RenovatingAgentState) -> RenovatingAgentState:
+    """节点 2: 计算装修预算"""
+    logger.info("💰 [装修Agent] 计算装修预算")
+    llm = get_llm_client()
+    area = state.get('house_area', 100)
+    style = state.get('style', '现代简约')
+    prompt = f"""为 {area} 平方米的 {style} 风格装修生成详细的预算清单。
+    预算分类及行业标准比例：
+    1. 设计费: 5-10%
+    2. 基装（拆改/水电/泥瓦/木工/油漆）: 30-35%
+    3. 主材（地板/瓷砖/门窗/橱柜/卫浴）: 35-40%
+    4. 软装（家具/窗帘/灯具/饰品）: 15-20%
+    5. 家电（空调/冰箱/洗衣机/电视）: 10-15%
+    6. 其他（管理费/清洁费/搬家费）: 3-5%
+    每个预算项包含：category, item_name, specifications, unit, quantity, unit_price, total_price​
+    返回 JSON 数组格式。"""
+    try:
+        response = await llm.agenerate([prompt])
+        text = response.generations[0][0].text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        items = json.loads(text.strip())
+        breakdown = {}
+        for item in items:
+            cat = item.get('category', '其他')
+            if cat not in breakdown:
+                breakdown[cat] = 0
+            breakdown[cat] += item.get('total_price', 0)
+        state['material_list'] = items
+        state['budget_breakdown'] = breakdown
+        state['total_budget'] = sum(breakdown.values())
+        logger.info(f"✅ 预算计算完成，总计: ¥{state['total_budget']}")
+    except Exception as e:
+        logger.error(f"❌ 预算计算失败: {e}")
+        state['material_list'] = []
+        state['budget_breakdown'] = {}
+        state['total_budget'] = 0
+    return state
+
+async def generate_phases(state: RenovatingAgentState) -> RenovatingAgentState:
+    """节点 3: 生成施工阶段"""
+    logger.info("📅 [装修Agent] 生成施工阶段")
+    llm = get_llm_client()
+    prompt = """生成装修施工阶段和工期计划。
+    标准施工阶段：
+    1. 设计阶段 (10天) - 量房、平面图、效果图
+    2. 拆改阶段 (5天) - 墙体拆改、铲墙皮
+    3. 水电改造 (10天) - 水管、电线铺设
+    4. 泥瓦工程 (20天) - 防水、贴砖、找平
+    5. 木工工程 (15天) - 吊顶、背景墙、定制柜
+    6. 油漆工程 (10天) - 刷墙、喷漆
+    7. 安装阶段 (10天) - 地板、门、灯具、开关
+    8. 软装进场 (5天) - 家具、窗帘、饰品
+    9. 保洁通风 (7天) - 开荒保洁、通风散味
+    如果是二手房/旧房翻新，需增加：旧房拆除 (5-10天)、墙面处理 (5-7天)
+    每阶段包含：name, duration_days, description
+    返回 JSON 数组格式。"""
+    try:
+        response = await llm.agenerate([prompt])
+        text = response.generations[0][0].text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        phases = json.loads(text.strip())
+        total_days = sum(phase.get('duration_days', 0) for phase in phases)
+        state['phases'] = phases
+        state['total_days'] = total_days
+        logger.info(f"✅ 生成 {len(phases)} 个施工阶段，总工期 {total_days} 天")
+    except Exception as e:
+        logger.error(f"❌ 施工阶段生成失败: {e}")
+        state['phases'] = []
+        state['total_days'] = 0
+    return state
+
+async def generate_response(state: RenovatingAgentState) -> RenovatingAgentState:
+    """节点 4: 生成最终回复"""
+    logger.info("💬 [装修Agent] 生成回复")
+    breakdown = state.get('budget_breakdown', {})
+    total = state.get('total_budget', 0)
+    phases = state.get('phases', [])
+    total_days = state.get('total_days', 0)
+    response = f"""🏠 **装修规划已完成！**
+
+---
+**📐 房屋信息**
+| 项目 | 内容 |
+|------|------|
+| 户型 | {state.get('house_type', '待确定')} |
+| 面积 | {state.get('house_area', 0)} ㎡ |
+| 装修风格 | {state.get('style', '现代简约')} |
+| 房屋现状 | {state.get('current_state', '毛坯房')} |
+| 优先级 | {', '.join(state.get('priorities', [])) or '无特殊要求'} |
+
+---
+**💰 预算概览**
+**总预算: ¥{total:,.0f}**
+"""
+    sorted_breakdown = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
+    for cat, amount in sorted_breakdown:
+        percentage = (amount / total * 100) if total > 0 else 0
+        bar = "█" * int(percentage / 5) + "░" * (20 - int(percentage / 5))
+        response += f"| {cat} | ¥{amount:,.0f} | {bar} {percentage:.1f}% |\n"
+    response += f"""
+---
+**📅 施工周期**
+**预计总工期: {total_days} 天**（约 {(total_days // 30) + 1 if total_days % 30 != 0 else total_days // 30} 个月）
+
+**施工阶段:**
+"""
+    for i, phase in enumerate(phases, 1):
+        name = phase.get('name', '')
+        days = phase.get('duration_days', 0)
+        response += f"{i}. **{name}** ({days}天)\n"
+    response += """
+---
+**💡 装修建议**
+1. **预算控制**：建议预留 10-15% 的备用金应对意外支出
+2. **环保优先**：选择 E0/E1 级板材，水性油漆
+3. **隐蔽工程**：水电改造是基础，一定要做好验收
+4. **通风散味**：装修后至少通风 1 个月再入住
+5. **验收仔细**：每个阶段完成后都要仔细验收再付款
+"""
+    state['response'] = response
+    state['generated_plan'] = {
+        'house_type': state.get('house_type'), 'house_area': state.get('house_area'),
+        'style': state.get('style'), 'current_state': state.get('current_state'),
+        'budget_breakdown': breakdown, 'total_budget': total,
+        'phases': phases, 'total_days': total_days, 'material_list': state.get('material_list', [])
+    }
+    state['suggested_actions'] = ["查看详细预算清单", "查看施工进度表", "生成材料采购清单", "保存到项目"]
+    logger.info("✅ 回复生成完成")
+    return state
