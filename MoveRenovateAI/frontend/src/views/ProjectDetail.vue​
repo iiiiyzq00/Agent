@@ -1,0 +1,49 @@
+<template>
+  <div class="project-detail-page">
+    <div class="page-header">
+      <a-button type="text" @click="$router.push('/projects')"><icon-left /> 返回</a-button>
+      <h1>{{ project?.title || '项目详情' }}</h1>
+    </div>
+    <a-spin :loading="loading">
+      <div v-if="project">
+        <a-descriptions :column="2" bordered style="margin-bottom: 24px">
+          <a-descriptions-item label="项目类型">{{ project.project_type === 'moving' ? '📦 搬家' : '🏠 装修' }}</a-descriptions-item>
+          <a-descriptions-item label="状态">{{ project.status }}</a-descriptions-item>
+          <a-descriptions-item v-if="project.source_address" label="出发地">{{ project.source_address }}</a-descriptions-item>
+          <a-descriptions-item v-if="project.target_address" label="目的地">{{ project.target_address }}</a-descriptions-item>
+          <a-descriptions-item v-if="project.house_area" label="面积">{{ project.house_area }}㎡</a-descriptions-item>
+          <a-descriptions-item v-if="project.total_budget" label="预算">¥{{ project.total_budget.toLocaleString() }}</a-descriptions-item>
+        </a-descriptions>
+        <a-tabs default-active-key="checklists">
+          <a-tab-pane key="checklists" title="清单">
+            <div v-if="project.checklists?.length">
+              <a-card v-for="checklist in project.checklists" :key="checklist.id" style="margin-bottom: 16px">
+                <template #title>{{ checklist.name }} - {{ checklist.completed_items }}/{{ checklist.total_items }}</template>
+                <a-progress :percent="checklist.progress" />
+              </a-card>
+            </div>
+            <a-empty v-else description="暂无清单" />
+          </a-tab-pane>
+        </a-tabs>
+      </div>
+    </a-spin>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { projectsApi } from '../api/projects'
+
+const route = useRoute()
+const project = ref<any>(null)
+const loading = ref(false)
+
+onMounted(async () => { loading.value = true; try { project.value = await projectsApi.get(route.params.id as string) } catch (error) { console.error('加载失败') } finally { loading.value = false } })
+</script>
+
+<style scoped>
+.project-detail-page { max-width: 900px; margin: 0 auto; padding: 24px; }
+.page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+.page-header h1 { font-size: 24px; margin: 0; }
+</style>
