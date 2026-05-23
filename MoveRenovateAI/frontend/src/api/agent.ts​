@@ -1,0 +1,10 @@
+import request from './index'
+
+export const agentApi = {
+  chat: (data: { message: string; project_id?: string; context?: any }) =>
+    request.post('/api/v1/agent/chat', data),
+  getHistory: (params?: { limit?: number; offset?: number }) =>
+    request.get('/api/v1/agent/history', { params }),
+  clearHistory: () => request.delete('/api/v1/agent/history'),
+  saveToProject: (data: any) => request.post('/api/v1/agent/save-to-project', data),
+}
