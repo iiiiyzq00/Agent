@@ -28,13 +28,13 @@ class LLMClient:
     async def agenerate(self, prompts: List[str]):
         try:
             from langchain.schema import HumanMessage
-            messages = [HumanMessage(content=prompt) for prompt in prompts]​
-            response = await self.client.agenerate(messages)​
+            messages = [HumanMessage(content=prompt) for prompt in prompts]
+            response = await self.client.agenerate(messages)
             return response
         except Exception as e:
             logger.error(f"LLM 调用失败: {e}")
             raise
-        
+
 _llm_client: Optional[LLMClient] = None
 
 def get_llm_client() -> LLMClient:
