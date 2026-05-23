@@ -1,0 +1,108 @@
+"""Agent 对话 API 模块"""
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from uuid import UUID
+from app.database import get_db
+from app.models.user import User
+from app.models.project import Project, Conversation
+from app.agent.moving_agent.graph import run_moving_agent
+from app.agent.renovating_agent.graph import run_renovating_agent
+import logging
+
+router = APIRouter(prefix="/api/v1/agent")
+logger = logging.getLogger(__name__)
+
+def get_current_user_id(token: str) -> str:
+    from jose import jwt
+    from app.config import settings
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload.get("sub")
+    except:
+        raise HTTPException(status_code=401, detail="未授权")
+
+def detect_project_type(message: str) -> tuple[str, bool]:
+    """检测项目类型，返回 (project_type, is_detected)"""
+    message_lower = message.lower()
+    moving_keywords = ['搬家', '搬走', '搬入', '打包', '装箱', '搬东西', '搬新家', '旧家']
+    renovating_keywords = ['装修', '翻新', '改造', '装潢', '施工', '刷墙', '铺地板', '装修房子']
+    is_moving = any(kw in message_lower for kw in moving_keywords)
+    is_renovating = any(kw in message_lower for kw in renovating_keywords)
+    if is_moving and is_renovating: return "moving", True
+    elif is_moving: return "moving", True
+    elif is_renovating: return "renovating", True
+    else: return "moving", False
+
+@router.post("/chat")
+async def chat_with_agent(request: dict, token: str = Depends(lambda: None), db: AsyncSession = Depends(get_db)):
+    user_id = get_current_user_id(token)
+    try:
+        message = request.get("message", "")
+        user_msg = Conversation(user_id=user_id, role="user", content=message,
+                               project_id=request.get("project_id"), session_id=str(user_id))
+        db.add(user_msg); await db.commit()
+        project_type, _ = detect_project_type(message)
+        logger.info(f"🔍 检测到项目类型: {project_type}")
+        if project_type == "moving":
+            result = await run_moving_agent(user_id=user_id, user_message=message, context=request.get("context", {}))
+        else:
+            result = await run_renovating_agent(user_id=user_id, user_message=message, context=request.get("context", {}))
+        assistant_msg = Conversation(user_id=user_id, role="assistant", content=result.get("response", ""),
+            project_id=request.get("project_id"), session_id=str(user_id),
+            metadata={"intent": result.get("intent"), "project_type": project_type,
+                     "suggested_actions": result.get("suggested_actions", [])})
+        db.add(assistant_msg); await db.commit()
+        return {"message": result.get("response", ""), "intent": result.get("intent"), "project_type": project_type,
+                "generated_checklist": result.get("generated_checklist"), "generated_plan": result.get("generated_plan"),
+               "suggested_actions": result.get("suggested_actions", [])}
+    except Exception as e:
+        logger.error(f"❌ Agent 处理失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history")
+async def get_chat_history(limit: int = 20, offset: int = 0, token: str = Depends(lambda: None), db: AsyncSession = Depends(get_db)):
+    user_id = get_current_user_id(token)
+    query = select(Conversation).where(Conversation.user_id == user_id)
+    query = query.order_by(desc(Conversation.created_at)).offset(offset).limit(limit)
+    result = await db.execute(query)
+    messages = result.scalars().all()
+    return {"messages": [{"id": str(msg.id), "role": msg.role, "content": msg.content,
+                           "timestamp": msg.created_at.isoformat() if msg.created_at else "",
+                           "metadata": msg.metadata or {}}
+                          for msg in reversed(messages)], "total": len(messages)}
+
+@router.delete("/history")
+async def clear_chat_history(token: str = Depends(lambda: None), db: AsyncSession = Depends(get_db)):
+    user_id = get_current_user_id(token)
+    result = await db.execute(select(Conversation).where(Conversation.user_id == user_id))
+    messages = result.scalars().all()
+    count = len(messages)
+    for msg in messages: await db.delete(msg)
+    await db.commit()
+    return {"message": f"已清除 {count} 条对话记录"}
+
+@router.post("/save-to-project")
+async def save_to_project(request: dict, token: str = Depends(lambda: None), db: AsyncSession = Depends(get_db)):
+    user_id = get_current_user_id(token)
+    project_id = request.get("project_id")
+    generated_data = request.get("generated_data", {})
+    if not project_id:
+        project = Project(user_id=user_id, title="新项目", project_type=generated_data.get("project_type", "moving"))
+        db.add(project); await db.flush(); project_id = project.id
+    else:
+        result = await db.execute(select(Project).where(Project.id == project_id).where(Project.user_id == user_id))
+        project = result.scalar_one_or_none()
+        if not project: raise HTTPException(status_code=404, detail="项目不存在")
+    if "items" in generated_data:
+        checklist = Checklist(project_id=project_id, checklist_type="moving_items", name="AI生成的物品清单")
+        db.add(checklist); await db.flush()
+        for idx, item_data in enumerate(generated_data.get("items", [])):
+            item = ChecklistItem(checklist_id=checklist.id, name=item_data.get("name", ""),
+                category=item_data.get("category"), quantity=item_data.get("quantity", 1),
+                room=item_data.get("room"), priority=item_data.get("priority", "normal"),
+                is_fragile=item_data.get("fragile", False), is_valuable=item_data.get("valuable", False),
+                pack_order=idx + 1)
+            db.add(item); checklist.total_items += 1
+    await db.commit()
+    return {"message": "已保存到项目", "project_id": str(project_id)}
