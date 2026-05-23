@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """应用配置类"""
     APP_NAME: str = "MoveRenovateAI"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True11    
+    DEBUG: bool = True    
     DATABASE_URL: str = "sqlite+aiosqlite:///./moverenovateai.db"
     REDIS_URL: str = "redis://localhost:6379/0"
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
