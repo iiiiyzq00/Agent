@@ -1,0 +1,51 @@
+"""装修规划 Agent 工作流模块"""
+from langgraph.graph import StateGraph, END
+from app.agent.state import RenovatingAgentState
+from app.agent.renovating_agent.nodes import (
+    parse_requirements, calculate_budget, generate_phases, generate_response
+)
+import logging
+
+logger = logging.getLogger(__name__)
+
+def create_renovating_agent_graph():
+    """创建装修规划 Agent 工作流图"""
+    graph = StateGraph(RenovatingAgentState)
+    graph.add_node("parse_requirements", parse_requirements)
+    graph.add_node("calculate_budget", calculate_budget)
+    graph.add_node("generate_phases", generate_phases)
+    graph.add_node("generate_response", generate_response)
+    graph.set_entry_point("parse_requirements")
+    graph.add_edge("parse_requirements", "calculate_budget")
+    graph.add_edge("calculate_budget", "generate_phases")
+    graph.add_edge("generate_phases", "generate_response")
+    graph.add_edge("generate_response", END)
+    return graph.compile()
+
+_renovating_agent = None
+
+def get_renovating_agent():
+    global _renovating_agent
+    if _renovating_agent is None:
+        _renovating_agent = create_renovating_agent_graph()
+    return _renovating_agent
+
+async def run_renovating_agent(user_id: str, user_message: str, context: dict = None) -> dict:
+    logger.info(f"🚀 [装修Agent] 开始处理: {user_message[:50]}...")
+    initial_state: RenovatingAgentState = {
+        "user_id": user_id, "user_message": user_message,
+        "house_type": None, "house_area": None, "current_state": None, "style": None,
+        "budget_range": None, "priorities": [], "budget_breakdown": {}, "total_budget": None,
+        "material_list": [], "phases": [], "total_days": 0, "acceptance_checklist": [],
+        "response": None, "generated_plan": None, "suggested_actions": [], "error": None
+    }
+    if context:
+        for key, value in context.items():
+            if key in initial_state:
+                initial_state[key] = value
+    agent = get_renovating_agent()
+    result = await agent.ainvoke(initial_state)
+    logger.info(f"✅ [装修Agent] 处理完成")
+    return {"response": result.get("response"), "intent": "create_renovating_plan",
+            "generated_plan": result.get("generated_plan"),
+            "suggested_actions": result.get("suggested_actions", [])}
